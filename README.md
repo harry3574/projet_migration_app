@@ -15,12 +15,12 @@ The system is intentionally minimal:
 
 ##  Project Goal
 
-> Create a single interface for a collection of local tools and scripts, allowing each one to:
->
-> * Expose a UI
-> * Receive structured input
-> * Run locally
-> * Return structured output
+ Create a single interface for a collection of local tools and scripts, allowing each one to:
+
+ * Expose a UI
+ * Receive structured input
+ * Run locally
+ * Return structured output
 
 Each tool lives as an **independent module**, with its own backend logic and frontend UI.
 
