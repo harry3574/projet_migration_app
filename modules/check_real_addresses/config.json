@@ -1,0 +1,7 @@
+{
+  "id": "check_real_addresses",
+  "name": "Check Real Addresses",
+  "description": "Validate real-world addresses from Excel files",
+  "entrypoint": "module.py",
+  "ui": "ui.html"
+}

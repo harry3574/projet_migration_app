@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Excel Tools</title>
+</head>
+<body>
+  <h2>Excel Tools</h2>
+
+  <input type="text" id="file_path" placeholder="Path to Excel file" />
+  <button onclick="run()">Run</button>
+
+  <pre id="output"></pre>
+
+  <script>
+    async function run() {
+      const res = await fetch("/api/run/excel_tools", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          file_path: document.getElementById("file_path").value
+        })
+      });
+
+      const data = await res.json();
+      document.getElementById("output").textContent =
+        JSON.stringify(data, null, 2);
+    }
+  </script>
+</body>
+</html>

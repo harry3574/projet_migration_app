@@ -1,0 +1,7 @@
+{
+  "name": "Excel Tools",
+  "id": "excel_tools",
+  "description": "Utilities for Excel file processing",
+  "entrypoint": "module.py",
+  "ui": "ui.html"
+}

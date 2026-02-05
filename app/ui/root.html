@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Local Tool Suite</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: sans-serif;
+      display: flex;
+      height: 100vh;
+    }
+
+    #sidebar {
+      width: 240px;
+      background: #1e1e1e;
+      color: white;
+      padding: 10px;
+      box-sizing: border-box;
+    }
+
+    #sidebar h2 {
+      font-size: 16px;
+      margin-top: 0;
+    }
+
+    #modules {
+      list-style: none;
+      padding: 0;
+    }
+
+    #modules li {
+      padding: 8px;
+      cursor: pointer;
+      border-radius: 4px;
+    }
+
+    #modules li:hover {
+      background: #333;
+    }
+
+    #content {
+      flex: 1;
+      border: none;
+    }
+  </style>
+</head>
+<body>
+
+  <div id="sidebar">
+    <h2>Modules</h2>
+    <ul id="modules"></ul>
+  </div>
+
+  <iframe id="content"></iframe>
+
+  <script>
+    async function loadModules() {
+      const res = await fetch("/api/modules");
+      const modules = await res.json();
+
+      const list = document.getElementById("modules");
+      list.innerHTML = "";
+
+      modules.forEach(m => {
+        const li = document.createElement("li");
+        li.textContent = m.name;
+        li.onclick = () => {
+          document.getElementById("content").src = `/ui/${m.id}`;
+        };
+        list.appendChild(li);
+      });
+    }
+
+    loadModules();
+  </script>
+
+</body>
+</html>

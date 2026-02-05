@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Check Real Addresses</title>
+  <style>
+    table { border-collapse: collapse; width: 100%; }
+    th, td { border: 1px solid #ccc; padding: 4px; }
+    th.selected, td.selected { background: #fff3b0; }
+    #results { margin-top: 20px; }
+  </style>
+</head>
+
+<style>
+:root {
+  --bg: #f6f7f9;
+  --card: #ffffff;
+  --border: #e0e0e0;
+  --text: #333;
+  --muted: #777;
+
+  --primary: #2563eb;
+  --success: #16a34a;
+  --danger: #dc2626;
+  --warning: #f59e0b;
+}
+
+* {
+  box-sizing: border-box;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.container {
+  max-width: 1100px;
+  margin: 40px auto;
+  padding: 0 20px;
+}
+
+.card {
+  background: var(--card);
+  border-radius: 10px;
+  box-shadow: 0 10px 25px rgba(0,0,0,0.06);
+  padding: 20px;
+  margin-bottom: 25px;
+}
+
+h1, h2, h3, h4 {
+  margin-top: 0;
+}
+
+.actions {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+button {
+  background: var(--primary);
+  color: #fff;
+  border: none;
+  padding: 10px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+button.secondary {
+  background: #e5e7eb;
+  color: #111;
+}
+
+button:hover {
+  opacity: 0.9;
+}
+
+input[type="file"] {
+  padding: 6px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 10px;
+  font-size: 13px;
+}
+
+th, td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+}
+
+thead th {
+  background: #f1f5f9;
+  cursor: pointer;
+  user-select: none;
+}
+
+th.selected {
+  background: #fff3b0;
+}
+
+tr.valid {
+  background: #ecfdf5;
+}
+
+tr.invalid {
+  background: #fef2f2;
+}
+
+.good { color: var(--success); font-weight: 700; }
+.medium { color: var(--warning); font-weight: 700; }
+.bad { color: var(--danger); font-weight: 700; }
+
+.bad-reason {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.scorebar {
+  height: 18px;
+  width: 100%;
+  display: flex;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+
+.scorebar .valid {
+  background: var(--success);
+}
+
+.scorebar .invalid {
+  background: var(--danger);
+}
+
+.muted {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+#processingOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(255,255,255,0.75);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+
+.processing-card {
+  background: white;
+  border-radius: 12px;
+  padding: 30px 40px;
+  box-shadow: 0 20px 40px rgba(0,0,0,0.15);
+  text-align: center;
+  max-width: 360px;
+}
+
+.spinner {
+  width: 46px;
+  height: 46px;
+  border: 4px solid #e5e7eb;
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin: 0 auto 16px;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+</style>
+
+<body>
+
+<div class="container">
+
+  <div class="card">
+    <h1>Check Real Addresses</h1>
+    <p class="muted">
+      Upload an Excel file, select the address columns, and verify their validity.
+    </p>
+
+    <div class="actions">
+      <input type="file" id="file" accept=".xlsx,.xls"/>
+      <button class="secondary" onclick="loadPreview()">Load preview</button>
+      <button onclick="verify()">Verify addresses</button>
+    </div>
+  </div>
+
+  <div id="preview" class="card"></div>
+
+  <div id="results" class="card"></div>
+
+</div>
+
+<div id="processingOverlay" style="display:none">
+  <div class="processing-card">
+    <div class="spinner"></div>
+    <h3>Processing addresses</h3>
+    <p class="muted">
+      We are verifying addresses one by one.<br>
+      This may take a few moments.
+    </p>
+  </div>
+</div>
+
+</body>
+
+
+<script>
+let filePath = null;
+let columns = [];
+let selected = new Set();
+
+async function uploadFile(file) {
+  console.log("Uploading file:", file.name);
+
+  const form = new FormData();
+  form.append("file", file);
+
+  const res = await fetch("/api/upload", {
+    method: "POST",
+    body: form
+  });
+
+  console.log("Upload response status:", res.status);
+
+  if (!res.ok) {
+    const t = await res.text();
+    throw new Error("Upload failed: " + t);
+  }
+
+  const data = await res.json();
+  console.log("Upload response JSON:", data);
+
+  if (!data.path) {
+    throw new Error("Upload response missing path");
+  }
+
+  return data.path;
+}
+
+async function loadPreview() {
+  const input = document.getElementById("file");
+  const file = input.files[0];
+
+  if (!file) {
+    alert("Select a file first");
+    return;
+  }
+
+
+  try {
+    filePath = await uploadFile(file);
+    console.log("File uploaded to:", filePath);
+  } catch (err) {
+    console.error(err);
+    alert("Upload failed — see console");
+    return;
+  }
+
+  console.log("Requesting preview with path:", filePath);
+
+  const res = await fetch("/api/run/check_real_addresses", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({
+      action: "preview",
+      file_path: filePath
+    })
+  });
+
+  console.log("Preview response status:", res.status);
+
+  if (!res.ok) {
+    const t = await res.text();
+    console.error(t);
+    alert("Preview failed — see console");
+    return;
+  }
+
+  const data = await res.json();
+  console.log("Preview response JSON:", data);
+
+  if (!Array.isArray(data.columns)) {
+    alert("Invalid preview response");
+    return;
+  }
+
+  columns = data.columns;
+  renderPreview(data.preview);
+}
+
+function renderPreview(rows) {
+  selected.clear();
+
+  let html = "<table><thead><tr>";
+  columns.forEach(c => {
+    html += `<th onclick="toggleColumn('${c}')">${c}</th>`;
+  });
+  html += "</tr></thead><tbody>";
+
+  rows.forEach(r => {
+    html += "<tr>";
+    columns.forEach(c => {
+      html += `<td>${r[c] ?? ""}</td>`;
+    });
+    html += "</tr>";
+  });
+
+  html += "</tbody></table>";
+  document.getElementById("preview").innerHTML = html;
+}
+
+function toggleColumn(col) {
+  if (selected.has(col)) selected.delete(col);
+  else selected.add(col);
+
+  document.querySelectorAll("th").forEach(th => {
+    th.classList.toggle("selected", selected.has(th.textContent));
+  });
+}
+
+async function verify() {
+  if (!filePath) {
+    alert("No file loaded");
+    return;
+  }
+
+  if (selected.size === 0) {
+    alert("Select at least one column");
+    return;
+  }
+
+  showProcessing();
+
+  try {
+    const res = await fetch("/api/run/check_real_addresses", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({
+        action: "verify",
+        file_path: filePath,
+        columns: Array.from(selected)
+      })
+    });
+
+    if (!res.ok) {
+      const t = await res.text();
+      console.error(t);
+      alert("Verification failed");
+      return;
+    }
+
+    const data = await res.json();
+    renderResults(data);
+
+  } finally {
+    hideProcessing();
+  }
+}
+
+function renderResults(data) {
+  const results = document.getElementById("results");
+
+  results.innerHTML = `
+    <h3>Results overview</h3>
+
+    ${renderScoreBar(data.valid, data.invalid)}
+
+    <p>Total checked: <b>${data.checked}</b></p>
+    <p style="color:green">Valid: <b>${data.valid}</b></p>
+    <p style="color:red">Invalid: <b>${data.invalid}</b></p>
+
+    <h4 style="color:red">Invalid address samples</h4>
+    ${renderTable(data.invalid_samples, "invalid")}
+
+    <h4 style="color:green">Valid address samples</h4>
+    ${renderTable(data.valid_samples ?? [], "valid")}
+  `;
+}
+
+function renderScoreBar(valid, invalid) {
+  const total = valid + invalid || 1;
+  const vPct = Math.round((valid / total) * 100);
+  const iPct = 100 - vPct;
+
+  return `
+    <div class="scorebar">
+      <div class="valid" style="width:${vPct}%"></div>
+      <div class="invalid" style="width:${iPct}%"></div>
+    </div>
+    <p class="muted">${vPct}% valid - ${iPct}% invalid</p>
+  `;
+}
+
+
+function renderTable(rows, type) {
+  if (!rows || rows.length === 0) {
+    return "<p><i>No samples available</i></p>";
+  }
+
+  const cols = Object.keys(rows[0]);
+
+  let html = "<table><thead><tr>";
+  cols.forEach(c => html += `<th>${c}</th>`);
+  html += "</tr></thead><tbody>";
+
+  rows.forEach(r => {
+    html += `<tr class="${type}">`;
+
+    cols.forEach(c => {
+      let value = r[c] ?? "";
+
+      if (c === "score" && value !== "") {
+        const cls =
+          value >= 0.8 ? "good" :
+          value >= 0.6 ? "medium" :
+          "bad";
+
+        html += `<td class="${cls}">${value.toFixed(3)}</td>`;
+      }
+      else if (c === "reason") {
+        html += `<td class="bad-reason">${value}</td>`;
+      }
+      else {
+        html += `<td>${value}</td>`;
+      }
+    });
+
+    html += "</tr>";
+  });
+
+  html += "</tbody></table>";
+  return html;
+}
+
+function showProcessing() {
+  document.getElementById("processingOverlay").style.display = "flex";
+  document.querySelectorAll("button").forEach(b => b.disabled = true);
+}
+
+function hideProcessing() {
+  document.getElementById("processingOverlay").style.display = "none";
+  document.querySelectorAll("button").forEach(b => b.disabled = false);
+}
+
+</script>
+
+</html>
