@@ -312,3 +312,49 @@ This project is meant to:
 * Avoid long-running blocking calls if possible
 * Return structured data (not formatted strings)
 * Treat modules as independent tools
+
+Here's a clean installation section you can add to your README:
+
+---
+
+## Installation & Setup
+
+1. **Clone or download the project**
+   ```bash
+   git clone <your-repo-url>
+   cd <project-directory>
+   ```
+
+2. **Set up virtual environment**
+   ```bash
+   python -m venv .venv
+   ```
+
+3. **Activate virtual environment**
+   - **Windows:**
+     ```bash
+     .venv\Scripts\activate
+     ```
+   - **macOS/Linux:**
+     ```bash
+     source .venv/bin/activate
+     ```
+
+4. **Install dependencies**
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+5. **Run the application**
+   ```bash
+   python main.py
+   ```
+
+**Quick Start** (for experienced users):
+```bash
+git clone <your-repo-url> && cd <project-directory>
+python -m venv .venv && source .venv/bin/activate  # or .venv\Scripts\activate on Windows
+pip install -r requirements.txt && python main.py
+```
+
+Just paste this into your README.md file. You can adjust the git clone command with your actual repository URL.

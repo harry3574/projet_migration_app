@@ -1,6 +1,8 @@
+import math
 from pathlib import Path
 import re
 import unicodedata
+import numpy as np
 import pandas as pd
 import requests
 from typing import Any, Dict, List, TypedDict, Optional
@@ -209,15 +211,18 @@ def validate_row(row, column_types: Dict[str, str]) -> dict:
 
 def load_preview(payload: Dict[str, Any]) -> Dict[str, Any]:
     file_path = Path(payload["file_path"])
+
     df = pd.read_excel(file_path)
 
-    preview = df.head(PREVIEW_ROWS)
+    preview = df.head(PREVIEW_ROWS).to_dict(orient="records")
 
-    return {
+    result = {
         "columns": list(df.columns),
-        "preview": preview.to_dict(orient="records"),
-        "total_rows": len(df)
+        "preview": preview,
+        "total_rows": int(len(df))
     }
+
+    return sanitize_for_json(result)
 
 
 def verify_addresses(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -264,3 +269,30 @@ def run(payload: Dict[str, Any]) -> Dict[str, Any]:
         return verify_addresses(payload)
 
     raise ValueError(f"Unknown action: {action}")
+
+def sanitize_for_json(obj: Any) -> Any:
+    """
+    Recursively convert Pandas / NumPy values into JSON-safe Python types.
+    """
+    if obj is None:
+        return None
+
+    if isinstance(obj, float):
+        if math.isnan(obj) or math.isinf(obj):
+            return None
+        return obj
+
+    if isinstance(obj, (np.floating,)):
+        val = float(obj)
+        return None if math.isnan(val) or math.isinf(val) else val
+
+    if isinstance(obj, (np.integer,)):
+        return int(obj)
+
+    if isinstance(obj, dict):
+        return {k: sanitize_for_json(v) for k, v in obj.items()}
+
+    if isinstance(obj, list):
+        return [sanitize_for_json(v) for v in obj]
+
+    return obj
