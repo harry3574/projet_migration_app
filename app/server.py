@@ -6,8 +6,6 @@ from pathlib import Path
 from app.registry import registry
 from app.executor import execute
 
-#AAAAA
-
 app = FastAPI()
 
 ROOT_UI = Path("app/ui/root.html")
