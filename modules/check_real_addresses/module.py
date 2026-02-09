@@ -6,7 +6,11 @@ import numpy as np
 import pandas as pd
 import requests
 from typing import Any, Dict, List, TypedDict, Optional
+from uuid import uuid4
+from threading import Lock
 
+_PROGRESS = {}
+_PROGRESS_LOCK = Lock()
 
 BAN_URL = "https://api-adresse.data.gouv.fr/search/"
 PREVIEW_ROWS = 50
@@ -257,6 +261,51 @@ def verify_addresses(payload: Dict[str, Any]) -> Dict[str, Any]:
         "valid_samples": valid.head(20).to_dict(orient="records")
     }
 
+def verify_addresses_stream(payload: Dict[str, Any]):
+    file_path = Path(payload["file_path"])
+    selected_columns: List[str] = payload["columns"]
+
+    df = pd.read_excel(file_path)
+    total = len(df)
+
+    column_types = {
+        col: classify_column(df[col])
+        for col in selected_columns
+    }
+
+    valid_count = 0
+    invalid_count = 0
+    invalid_samples = []
+    valid_samples = []
+
+    for idx, row in df.iterrows():
+        result = validate_row(row, column_types)
+
+        if result["valid"]:
+            valid_count += 1
+            if len(valid_samples) < 20:
+                valid_samples.append(result)
+        else:
+            invalid_count += 1
+            if len(invalid_samples) < 20:
+                invalid_samples.append(result)
+
+        yield {
+            "type": "progress",
+            "current": idx + 1, # pyright: ignore[reportOperatorIssue]
+            "total": total,
+            "message": f"Validated {idx + 1} / {total}" # pyright: ignore[reportOperatorIssue]
+        }
+
+    yield {
+        "type": "done",
+        "checked": total,
+        "valid": valid_count,
+        "invalid": invalid_count,
+        "valid_samples": valid_samples,
+        "invalid_samples": invalid_samples
+    }
+
 
 
 def run(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -296,3 +345,29 @@ def sanitize_for_json(obj: Any) -> Any:
         return [sanitize_for_json(v) for v in obj]
 
     return obj
+
+def init_progress(total: int) -> str:
+    job_id = str(uuid4())
+    with _PROGRESS_LOCK:
+        _PROGRESS[job_id] = {
+            "total": total,
+            "current": 0,
+            "message": "Starting…",
+            "done": False
+        }
+    return job_id
+
+
+def update_progress(job_id: str, current: int, message: str = ""):
+    with _PROGRESS_LOCK:
+        if job_id in _PROGRESS:
+            _PROGRESS[job_id]["current"] = current
+            if message:
+                _PROGRESS[job_id]["message"] = message
+
+
+def finish_progress(job_id: str):
+    with _PROGRESS_LOCK:
+        if job_id in _PROGRESS:
+            _PROGRESS[job_id]["done"] = True
+

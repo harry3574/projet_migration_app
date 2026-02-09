@@ -48,6 +48,6 @@ class ModuleRegistry:
 
     def load_ui(self, module_id):
         module = self.modules[module_id]
-        return (module["path"] / module["meta"]["ui"]).read_text()
+        return (module["path"] / module["meta"]["ui"]).read_text(encoding="utf-8")
 
 registry = ModuleRegistry()

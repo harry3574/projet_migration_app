@@ -36,6 +36,10 @@ body {
   color: var(--text);
 }
 
+body.modal-open {
+  overflow: hidden;
+}
+
 .container {
   max-width: 1100px;
   margin: 40px auto;
@@ -149,9 +153,9 @@ tr.invalid {
 #processingOverlay {
   position: fixed;
   inset: 0;
-  background: rgba(255,255,255,0.75);
+  background: rgba(65, 64, 64, 0.75);
   backdrop-filter: blur(2px);
-  display: flex;
+  display: none;
   align-items: center;
   justify-content: center;
   z-index: 9999;
@@ -159,11 +163,14 @@ tr.invalid {
 
 .processing-card {
   background: white;
-  border-radius: 12px;
-  padding: 30px 40px;
-  box-shadow: 0 20px 40px rgba(0,0,0,0.15);
+  border-radius: 14px;
+  padding: 32px 36px;
+  box-shadow:
+    0 20px 40px rgba(0,0,0,0.18),
+    0 0 0 1px rgba(0,0,0,0.05);
   text-align: center;
-  max-width: 360px;
+  max-width: 420px;
+  width: 100%;
 }
 
 .spinner {
@@ -179,6 +186,36 @@ tr.invalid {
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
+
+.progress {
+  width: 100%;
+  height: 10px;
+  background: #e5e7eb;
+  border-radius: 999px;
+  overflow: hidden;
+  margin: 14px 0;
+}
+
+.progress-bar {
+  height: 100%;
+  width: 0%;
+  background: var(--primary);
+  transition: width 0.3s ease;
+}
+
+.log {
+  background: #0f172a;
+  color: #e5e7eb;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  text-align: left;
+  padding: 10px;
+  border-radius: 6px;
+  max-height: 160px;
+  overflow-y: auto;
+  margin-top: 12px;
+}
+
 </style>
 
 <body>
@@ -204,16 +241,24 @@ tr.invalid {
 
 </div>
 
-<div id="processingOverlay" style="display:none">
+<div id="processingOverlay">
   <div class="processing-card">
-    <div class="spinner"></div>
     <h3>Processing addresses</h3>
-    <p class="muted">
-      We are verifying addresses one by one.<br>
-      This may take a few moments.
-    </p>
+
+    <div class="progress">
+      <div class="progress-bar" id="progressBar"></div>
+    </div>
+
+    <p class="muted" id="progressText">Starting...</p>
+    <p class="muted" id="etaText"></p>
+
+    <div class="log" id="processLog"></div>
   </div>
 </div>
+
+<button id="downloadCsvBtn" disabled>
+  ⬇️ Download CSV
+</button>
 
 </body>
 
@@ -222,6 +267,8 @@ tr.invalid {
 let filePath = null;
 let columns = [];
 let selected = new Set();
+let processStartTime = null;
+let uploadedFilePath = null;
 
 async function uploadFile(file) {
   console.log("Uploading file:", file.name);
@@ -332,7 +379,7 @@ function toggleColumn(col) {
   });
 }
 
-async function verify() {
+function verify() {
   if (!filePath) {
     alert("No file loaded");
     return;
@@ -344,31 +391,64 @@ async function verify() {
   }
 
   showProcessing();
+  startProgressUI();
 
-  try {
-    const res = await fetch("/api/run/check_real_addresses", {
-      method: "POST",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({
-        action: "verify",
-        file_path: filePath,
-        columns: Array.from(selected)
-      })
-    });
+  const payload = {
+    action: "verify",
+    file_path: filePath,
+    columns: Array.from(selected)
+  };
 
-    if (!res.ok) {
-      const t = await res.text();
-      console.error(t);
-      alert("Verification failed");
-      return;
+  const params = new URLSearchParams({
+    file_path: filePath,
+    columns: Array.from(selected).join(",")
+  });
+
+  const evt = new EventSource(
+    `/api/run/check_real_addresses/stream?${params.toString()}`
+  );
+
+  evt.onmessage = e => {
+    const data = JSON.parse(e.data);
+
+    if (data.type === "progress") {
+      const percent = Math.round(
+        (data.current / data.total) * 100
+      );
+
+      setProgress(percent);
+      updateProgressText(data.message);
+      log(data.message);
+
+      // ---- ETA calculation ----
+      const elapsed = (Date.now() - processStartTime) / 1000;
+      const rate = data.current / elapsed;
+
+      if (rate > 0) {
+        const remaining = Math.round(
+          (data.total - data.current) / rate
+        );
+        updateETA(remaining);
+      }
     }
 
-    const data = await res.json();
-    renderResults(data);
+    if (data.type === "done") {
+      evt.close();
+      setProgress(100);
+      updateProgressText("Completed");
+      updateETA(0);
 
-  } finally {
+      renderResults(data);
+      hideProcessing();
+    }
+  };
+
+  evt.onerror = err => {
+    console.error("SSE error:", err);
+    evt.close();
+    alert("Processing failed");
     hideProcessing();
-  }
+  };
 }
 
 function renderResults(data) {
@@ -404,7 +484,6 @@ function renderScoreBar(valid, invalid) {
     <p class="muted">${vPct}% valid - ${iPct}% invalid</p>
   `;
 }
-
 
 function renderTable(rows, type) {
   if (!rows || rows.length === 0) {
@@ -447,14 +526,88 @@ function renderTable(rows, type) {
 }
 
 function showProcessing() {
+  document.body.classList.add("modal-open");
   document.getElementById("processingOverlay").style.display = "flex";
-  document.querySelectorAll("button").forEach(b => b.disabled = true);
+
+  // Disable all buttons defensively
+  document.querySelectorAll("button").forEach(
+    b => b.disabled = true
+  );
+
+  startProgressUI();
 }
 
 function hideProcessing() {
+  document.body.classList.remove("modal-open");
   document.getElementById("processingOverlay").style.display = "none";
-  document.querySelectorAll("button").forEach(b => b.disabled = false);
+
+  document.querySelectorAll("button").forEach(
+    b => b.disabled = false
+  );
 }
+
+function startProgressUI() {
+  processStartTime = Date.now();
+
+  setProgress(0);
+  updateProgressText("Initializing verification...");
+  updateETA(null);
+
+  const logEl = document.getElementById("processLog");
+  logEl.innerHTML = "";
+}
+
+function setProgress(percent) {
+  document.getElementById("progressBar").style.width = `${percent}%`;
+}
+
+function updateProgressText(text) {
+  document.getElementById("progressText").textContent = text;
+}
+
+function updateETA(seconds) {
+  const el = document.getElementById("etaText");
+
+  if (seconds === null || !isFinite(seconds)) {
+    el.textContent = "";
+    return;
+  }
+
+  el.textContent = `Estimated time remaining: ~${seconds}s`;
+}
+
+function log(message) {
+  const el = document.getElementById("processLog");
+  const line = document.createElement("div");
+
+  const ts = new Date().toLocaleTimeString();
+  line.textContent = `[${ts}] ${message}`;
+
+  el.appendChild(line);
+  el.scrollTop = el.scrollHeight;
+}
+
+  const downloadBtn = document.getElementById("downloadCsvBtn");
+
+  function enableDownload() {
+    downloadBtn.disabled = false;
+  }
+
+  downloadBtn.addEventListener("click", () => {
+    if (!uploadedFilePath || Columns.length === 0) {
+      alert("Missing file or columns");
+      return;
+    }
+
+    const params = new URLSearchParams({
+      file_path: uploadedFilePath,
+      columns: Columns.join(",")
+    });
+
+    // 🚀 This triggers a real file download
+    window.location.href =
+      `/api/run/check_real_addresses/export?${params.toString()}`;
+  });
 
 </script>
 

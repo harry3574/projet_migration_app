@@ -1,10 +1,12 @@
 import tempfile
 import uuid
-from fastapi import FastAPI, File, HTTPException, UploadFile
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, File, Query, HTTPException, UploadFile
+from fastapi.responses import HTMLResponse, StreamingResponse
 from pathlib import Path
 from app.registry import registry
 from app.executor import execute
+import json
+from modules.check_real_addresses.module import verify_addresses_stream
 
 app = FastAPI()
 
@@ -65,3 +67,22 @@ async def upload_file(file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail=str(e))
 
     return {"path": str(target)}
+
+@app.get("/api/run/check_real_addresses/stream")
+def run_stream(
+    file_path: str,
+    columns: str,  # comma-separated
+):
+    payload = {
+        "file_path": file_path,
+        "columns": columns.split(",")
+    }
+
+    def event_stream():
+        for event in verify_addresses_stream(payload):
+            yield f"data: {json.dumps(event)}\n\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream"
+    )
