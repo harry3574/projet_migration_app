@@ -6,7 +6,7 @@ from pathlib import Path
 from app.registry import registry
 from app.executor import execute
 import json
-from modules.check_real_addresses.module import verify_addresses_stream
+from modules.check_real_addresses.module import stream
 
 app = FastAPI()
 
@@ -37,12 +37,30 @@ def module_ui(module_id: str):
         raise HTTPException(status_code=404, detail="Module not found")
 
 
+# @app.post("/api/run/{module_id}")
+# def run_module(module_id: str, payload: dict):
+#     try:
+#         return execute(module_id, payload)
+#     except Exception as e:
+#         raise HTTPException(status_code=400, detail=str(e))
+
 @app.post("/api/run/{module_id}")
-def run_module(module_id: str, payload: dict):
-    try:
-        return execute(module_id, payload)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+def run_module(
+    module_id: str,
+    payload: dict,
+    mode: str = Query("sync")
+):
+    if mode == "stream":
+        def event_stream():
+            for event in execute(module_id, payload, mode="stream"):
+                yield f"data: {json.dumps(event)}\n\n"
+
+        return StreamingResponse(
+            event_stream(),
+            media_type="text/event-stream"
+        )
+
+    return execute(module_id, payload)
     
 
 UPLOAD_DIR = Path(tempfile.gettempdir()) / "local_tool_uploads"
@@ -67,22 +85,3 @@ async def upload_file(file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail=str(e))
 
     return {"path": str(target)}
-
-@app.get("/api/run/check_real_addresses/stream")
-def run_stream(
-    file_path: str,
-    columns: str,  # comma-separated
-):
-    payload = {
-        "file_path": file_path,
-        "columns": columns.split(",")
-    }
-
-    def event_stream():
-        for event in verify_addresses_stream(payload):
-            yield f"data: {json.dumps(event)}\n\n"
-
-    return StreamingResponse(
-        event_stream(),
-        media_type="text/event-stream"
-    )

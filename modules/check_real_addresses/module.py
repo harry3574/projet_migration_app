@@ -261,7 +261,7 @@ def verify_addresses(payload: Dict[str, Any]) -> Dict[str, Any]:
         "valid_samples": valid.head(20).to_dict(orient="records")
     }
 
-def verify_addresses_stream(payload: Dict[str, Any]):
+def stream(payload: Dict[str, Any]):
     file_path = Path(payload["file_path"])
     selected_columns: List[str] = payload["columns"]
 

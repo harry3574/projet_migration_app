@@ -379,14 +379,9 @@ function toggleColumn(col) {
   });
 }
 
-function verify() {
-  if (!filePath) {
-    alert("No file loaded");
-    return;
-  }
-
-  if (selected.size === 0) {
-    alert("Select at least one column");
+async function verify() {
+  if (!filePath || selected.size === 0) {
+    alert("Missing input");
     return;
   }
 
@@ -399,56 +394,66 @@ function verify() {
     columns: Array.from(selected)
   };
 
-  const params = new URLSearchParams({
-    file_path: filePath,
-    columns: Array.from(selected).join(",")
-  });
-
-  const evt = new EventSource(
-    `/api/run/check_real_addresses/stream?${params.toString()}`
+  const response = await fetch(
+    `/api/run/check_real_addresses?mode=stream`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    }
   );
 
-  evt.onmessage = e => {
-    const data = JSON.parse(e.data);
+  if (!response.ok || !response.body) {
+    throw new Error("Stream failed");
+  }
 
-    if (data.type === "progress") {
-      const percent = Math.round(
-        (data.current / data.total) * 100
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+
+    const events = buffer.split("\n\n");
+    buffer = events.pop(); // keep incomplete chunk
+
+    for (const evt of events) {
+      if (!evt.startsWith("data:")) continue;
+
+      const data = JSON.parse(evt.replace("data:", "").trim());
+      handleEvent(data);
+    }
+  }
+}
+
+function handleEvent(data) {
+  if (data.type === "progress") {
+    const percent = Math.round(
+      (data.current / data.total) * 100
+    );
+    setProgress(percent);
+    updateProgressText(data.message);
+    log(data.message);
+
+    const elapsed = (Date.now() - processStartTime) / 1000;
+    const rate = data.current / elapsed;
+    if (rate > 0) {
+      updateETA(
+        Math.round((data.total - data.current) / rate)
       );
-
-      setProgress(percent);
-      updateProgressText(data.message);
-      log(data.message);
-
-      // ---- ETA calculation ----
-      const elapsed = (Date.now() - processStartTime) / 1000;
-      const rate = data.current / elapsed;
-
-      if (rate > 0) {
-        const remaining = Math.round(
-          (data.total - data.current) / rate
-        );
-        updateETA(remaining);
-      }
     }
+  }
 
-    if (data.type === "done") {
-      evt.close();
-      setProgress(100);
-      updateProgressText("Completed");
-      updateETA(0);
-
-      renderResults(data);
-      hideProcessing();
-    }
-  };
-
-  evt.onerror = err => {
-    console.error("SSE error:", err);
-    evt.close();
-    alert("Processing failed");
+  if (data.type === "done") {
+    setProgress(100);
+    updateProgressText("Completed");
+    updateETA(0);
+    renderResults(data);
     hideProcessing();
-  };
+  }
 }
 
 function renderResults(data) {
