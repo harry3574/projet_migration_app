@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <meta charset="utf-8">
+  <meta charset="utf-8-sig">
   <title>Check Real Addresses</title>
   <style>
     table { border-collapse: collapse; width: 100%; }
@@ -257,7 +257,7 @@ tr.invalid {
 </div>
 
 <button id="downloadCsvBtn" disabled>
-  ⬇️ Download CSV
+  Download CSV
 </button>
 
 </body>
@@ -267,8 +267,9 @@ tr.invalid {
 let filePath = null;
 let columns = [];
 let selected = new Set();
-let processStartTime = null;
-let uploadedFilePath = null;
+
+let currentJobId = null;
+let isProcessing = false;
 
 async function uploadFile(file) {
   console.log("Uploading file:", file.name);
@@ -430,6 +431,12 @@ async function verify() {
 }
 
 function handleEvent(data) {
+    if (data.type === "started") {
+    currentJobId = data.job_id;
+    isProcessing = true;
+    disableDownload();
+  }
+
   if (data.type === "progress") {
     const percent = Math.round(
       (data.current / data.total) * 100
@@ -448,6 +455,11 @@ function handleEvent(data) {
   }
 
   if (data.type === "done") {
+    isProcessing = false;
+
+    // job_id is authoritative — store it
+    currentJobId = data.job_id;
+    
     setProgress(100);
     updateProgressText("Completed");
     updateETA(0);
@@ -592,27 +604,56 @@ function log(message) {
   el.scrollTop = el.scrollHeight;
 }
 
-  const downloadBtn = document.getElementById("downloadCsvBtn");
+const downloadBtn = document.getElementById("downloadCsvBtn");
 
-  function enableDownload() {
-    downloadBtn.disabled = false;
+function enableDownload() {
+  downloadBtn.disabled = false;
+}
+
+function disableDownload() {
+  downloadBtn.disabled = true;
+}
+
+downloadBtn.addEventListener("click", async () => {
+  if (!currentJobId) {
+    alert("No completed job to download");
+    return;
   }
 
-  downloadBtn.addEventListener("click", () => {
-    if (!uploadedFilePath || Columns.length === 0) {
-      alert("Missing file or columns");
-      return;
+  try {
+    const res = await fetch(
+      "/api/run/check_real_addresses?mode=download&format=csv",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          job_id: currentJobId
+        })
+      }
+    );
+
+    if (!res.ok) {
+      throw new Error("Download failed");
     }
 
-    const params = new URLSearchParams({
-      file_path: uploadedFilePath,
-      columns: Columns.join(",")
-    });
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
 
-    // 🚀 This triggers a real file download
-    window.location.href =
-      `/api/run/check_real_addresses/export?${params.toString()}`;
-  });
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "verified_addresses.csv";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+
+    URL.revokeObjectURL(url);
+  } catch (err) {
+    console.error(err);
+    alert("Could not download CSV");
+  }
+});
+
+
 
 </script>
 

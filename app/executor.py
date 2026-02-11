@@ -1,15 +1,16 @@
 import importlib
 
-def execute(module_id: str, payload: dict, mode: str = "sync"):
-    module_path = f"modules.{module_id}.module"
-    module = importlib.import_module(module_path)
+def execute(module_id: str, payload: dict, mode: str = "sync", format: str | None = None):
+    module = importlib.import_module(f"modules.{module_id}.module")
 
     if mode == "stream":
         if not hasattr(module, "stream"):
-            raise ValueError(f"Module '{module_id}' does not support streaming")
+            raise ValueError("Streaming not supported")
         return module.stream(payload)
 
-    if not hasattr(module, "run"):
-        raise ValueError(f"Module '{module_id}' has no run()")
+    if mode == "download":
+        if not hasattr(module, "download"):
+            raise ValueError("Download not supported")
+        return module.download(payload, format=format)
 
     return module.run(payload)

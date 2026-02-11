@@ -1,7 +1,11 @@
+import csv
+import json
 import math
 from pathlib import Path
 import re
+import tempfile
 import unicodedata
+import uuid
 import numpy as np
 import pandas as pd
 import requests
@@ -25,6 +29,15 @@ STREET_KEYWORDS = [
     "chemin", "route", "impasse", "allee",
     "place", "quai", "cours"
 ]
+
+FIELD_LABELS = {
+    "valid": "Adresse valide",
+    "reason": "Raison",
+    "postal_code": "Code postal",
+    "city": "Ville",
+    "country": "Pays",
+    "confidence": "Confiance",
+}
 
 class AddressParts(TypedDict):
     number: Optional[str]
@@ -263,10 +276,19 @@ def verify_addresses(payload: Dict[str, Any]) -> Dict[str, Any]:
 
 def stream(payload: Dict[str, Any]):
     file_path = Path(payload["file_path"])
-    selected_columns: List[str] = payload["columns"]
+    selected_columns = payload["columns"]
 
     df = pd.read_excel(file_path)
     total = len(df)
+
+    job_id = uuid.uuid4().hex
+
+    yield { "type": "started", "job_id": job_id }
+
+    RESULTS_DIR = Path(tempfile.gettempdir()) / "module_results"
+    RESULTS_DIR.mkdir(exist_ok=True)
+
+    result_path = RESULTS_DIR / f"{job_id}.jsonl"
 
     column_types = {
         col: classify_column(df[col])
@@ -275,30 +297,35 @@ def stream(payload: Dict[str, Any]):
 
     valid_count = 0
     invalid_count = 0
-    invalid_samples = []
     valid_samples = []
+    invalid_samples = []
 
-    for idx, row in df.iterrows():
-        result = validate_row(row, column_types)
+    with result_path.open("a", encoding="utf-8-sig") as f:
+        for idx, row in df.iterrows():
+            result = validate_row(row, column_types)
+            output = { **row.to_dict(), **result }
 
-        if result["valid"]:
-            valid_count += 1
-            if len(valid_samples) < 20:
-                valid_samples.append(result)
-        else:
-            invalid_count += 1
-            if len(invalid_samples) < 20:
-                invalid_samples.append(result)
+            f.write(json.dumps(output) + "\n")
 
-        yield {
-            "type": "progress",
-            "current": idx + 1, # pyright: ignore[reportOperatorIssue]
-            "total": total,
-            "message": f"Validated {idx + 1} / {total}" # pyright: ignore[reportOperatorIssue]
-        }
+            if result["valid"]:
+                valid_count += 1
+                if len(valid_samples) < 20:
+                    valid_samples.append(output)
+            else:
+                invalid_count += 1
+                if len(invalid_samples) < 20:
+                    invalid_samples.append(output)
+
+            yield {
+                "type": "progress",
+                "current": idx + 1, # type: ignore
+                "total": total,
+                "message": f"Validated {idx + 1} / {total}" # type: ignore
+            }
 
     yield {
         "type": "done",
+        "job_id": job_id,
         "checked": total,
         "valid": valid_count,
         "invalid": invalid_count,
@@ -371,3 +398,51 @@ def finish_progress(job_id: str):
         if job_id in _PROGRESS:
             _PROGRESS[job_id]["done"] = True
 
+def download(payload: Dict[str, Any], format: str | None = None):
+    if format != "csv":
+        raise ValueError("Unsupported format")
+
+    job_id = payload.get("job_id")
+    if not job_id:
+        raise ValueError("Missing job_id")
+
+    RESULTS_DIR = Path(tempfile.gettempdir()) / "module_results"
+    source = RESULTS_DIR / f"{job_id}.jsonl"
+
+    if not source.exists():
+        raise ValueError("Results not found")
+
+    fd, csv_path = tempfile.mkstemp(suffix=".csv")
+
+    with source.open("r", encoding="utf-8-sig") as src, \
+         open(fd, "w", newline="", encoding="utf-8-sig") as out:
+
+        writer = None
+        fieldnames = None
+
+        for line in src:
+            row = json.loads(line)
+
+            # First row → define schema
+            if fieldnames is None:
+                fieldnames = list(row.keys())
+
+                headers = [
+                    FIELD_LABELS.get(name, name)
+                    for name in fieldnames
+                ]
+
+                writer = csv.writer(out)
+                writer.writerow(headers)
+
+            # Write row values in the same order
+            writer.writerow([ # type: ignore
+                row.get(name, "")
+                for name in fieldnames
+            ])
+
+    return {
+        "path": csv_path,
+        "filename": f"verified_addresses_{job_id}.csv",
+        "media_type": "text/csv"
+    }

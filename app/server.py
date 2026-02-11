@@ -1,7 +1,7 @@
 import tempfile
 import uuid
 from fastapi import FastAPI, File, Query, HTTPException, UploadFile
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from pathlib import Path
 from app.registry import registry
 from app.executor import execute
@@ -48,16 +48,23 @@ def module_ui(module_id: str):
 def run_module(
     module_id: str,
     payload: dict,
-    mode: str = Query("sync")
+    mode: str = Query("sync"),
+    format: str | None = Query(None),
 ):
     if mode == "stream":
         def event_stream():
             for event in execute(module_id, payload, mode="stream"):
                 yield f"data: {json.dumps(event)}\n\n"
 
-        return StreamingResponse(
-            event_stream(),
-            media_type="text/event-stream"
+        return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+    if mode == "download":
+        result = execute(module_id, payload, mode="download", format=format)
+
+        return FileResponse(
+            path=result["path"],
+            filename=result.get("filename"),
+            media_type=result.get("media_type", "application/octet-stream"),
         )
 
     return execute(module_id, payload)
