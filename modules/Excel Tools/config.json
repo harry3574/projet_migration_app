@@ -3,5 +3,6 @@
   "id": "excel_tools",
   "description": "Utilities for Excel file processing",
   "entrypoint": "module.py",
-  "ui": "ui.html"
+  "ui": "ui.html",
+  "python": "py64"
 }

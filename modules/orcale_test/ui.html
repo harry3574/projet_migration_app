@@ -1,0 +1,27 @@
+<h2>Oracle Connection Test</h2>
+
+<button onclick="runTest()">Test Connection</button>
+
+<pre id="output"></pre>
+
+<script>
+async function runTest() {
+
+    const res = await fetch("/api/run/oracle_test", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+            dsn: "LAVAUR_PROD",
+            user: "LAVAUR",
+            password: "LAVAUR"
+        })
+    });
+
+    const data = await res.json();
+
+    document.getElementById("output").textContent =
+        JSON.stringify(data, null, 2);
+}
+</script>

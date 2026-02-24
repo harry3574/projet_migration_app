@@ -1,0 +1,8 @@
+{
+  "id": "oracle_test",
+  "name": "Oracle Connection Test",
+  "description": "Test Oracle DB connection and list tables",
+  "entrypoint": "module.py",
+  "ui": "ui.html",
+  "interpreter": "32"
+}

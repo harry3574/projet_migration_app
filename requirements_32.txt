@@ -1,0 +1,9 @@
+--only-binary=:all:
+--prefer-binary
+
+fastapi==0.128.0
+uvicorn==0.40.0
+pandas==2.0.3
+numpy==2.1.3
+requests==2.32.5
+openpyxl==3.1.5
